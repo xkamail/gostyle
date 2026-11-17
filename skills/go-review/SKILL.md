@@ -44,9 +44,11 @@ State which scope you picked in one line before diving in.
 
 1. Resolve scope first (in this session): run the `git`/`gh` command for the scope picked above and get the list of changed `*.go` files. If zero Go files → say so in one line and stop. Do NOT call the agent.
 2. Parse flags. If `--fix` against a PR scope → refuse and explain (`--fix` only works on local changes).
+2a. **Mechanical pass (in this session).** If `go tool gostyle version` succeeds, run the repo's gostyle lint: the Makefile `lint` target when it calls `gostyle lint` (it carries the repo's flags), else `go tool gostyle lint ./...`. Keep only findings in the changed files (audit scope: under the audited path). The tree being linted must be the code under review — for PR scope, skip this step unless `HEAD` is the PR's head commit, and say so in the scope line. If gostyle isn't installed or the lint fails to build, skip and say so in one line.
 3. Spawn one `general-purpose` agent with `model: "sonnet"`. The prompt must be self-contained — the agent has no memory of this conversation. Include:
    - The absolute path to `references/local.md` (when it exists) with instruction to read and apply it, plus absolute paths to any **workload-specific references** whose trigger the changed files match (listed in Rule Sources or in `local.md`). Skip references that don't apply — don't make the agent read all of them.
    - The exact diff command to run, plus instruction to Read each changed file in full at HEAD for surrounding context.
+   - The gostyle findings from step 2a (verbatim `file:line: message` lines, or "none"), with the instruction: report each one at the severity below, tagged `(gostyle <rule>)`; do NOT re-hunt the rules gostyle enforces — `pgiter`, `sqlstyle` (lowercase backtick SQL), `discardederr`, `handlererr`, `stdlog`, `ctxbackground`, `acronym`, `moneydecimal` (float money names), `validfirst`, `omitempty`, `slopcomment`, `zerodecl`. Spend the reading on what lint can't judge: placement, authz, transactions, races, money logic, file organization, tests. When step 2a was skipped, check those rules by reading as usual.
    - The full checklist (copy the sections below into the prompt — don't reference "the SKILL.md").
    - An explicit instruction to run the **Complexity Pass** section's auto-detection: scan every changed function for its activation signals (transactions, row locks, concurrency, async side effects, >100-line/4+-helper functions, money computed in 2+ places) and deep-review correctness on the ones that fire, in addition to the style checklist. This is the highest-value part of the review — the style checklist can pass a function that has a rollback-ordering or lost-update bug.
    - The output format and severity guide.
@@ -304,7 +306,7 @@ When the Complexity Pass activates on a function >~100 lines, or any changed fil
 ## Output Format
 
 ```
-Scope: <staged | unstaged | PR #N | branch vs main> — <N Go files>
+Scope: <staged | unstaged | PR #N | branch vs main> — <N Go files> — gostyle lint: <N findings | skipped: reason>
 
 🔴 Must Fix
   - file.go:42 — <rule violated>. <one-line fix>.
@@ -320,6 +322,7 @@ Scope: <staged | unstaged | PR #N | branch vs main> — <N Go files>
 ```
 
 Severity guide:
+- gostyle findings: `discardederr`, `handlererr`, `ctxbackground`, `validfirst`, `moneydecimal` → 🔴; `pgiter`, `sqlstyle`, `omitempty`, `stdlog` → 🟡; `acronym`, `zerodecl`, `slopcomment` → 🟢
 - 🔴 **Must Fix** — bugs, security, incorrect SQL, wrong decimal usage, missing `Valid()`, ignored errors, **Complexity-Pass correctness defects** (side effect inside tx, lost update, oversell via advisory-only check, TOCTOU, non-idempotent retried task, raw driver error to client, mixed-domain file past ~1200 lines)
 - 🟡 **Should Fix** — naming, omitempty present, pgstmt patterns, test conventions, divergent-but-not-yet-charged duplicate computations, mixed-domain file 600–1200 lines
 - 🟢 **Nit** — style drift, ordering, helper extraction calls
@@ -331,5 +334,5 @@ If no Go files changed, say so in one line and stop. Don't invent findings.
 - Don't auto-fix **unless** `--fix` or `--fix-all` was explicitly passed.
 - Don't restate rules the code already follows. Silence = passing.
 - Don't review non-Go files even if they're in the diff.
-- Don't run `go test` or `go build` — pure static review.
+- Don't run `go test` or `go build` — apart from the gostyle lint step, this is a static review.
 - Don't apply `--fix` against PR scope — local edits only.

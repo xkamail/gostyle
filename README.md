@@ -9,6 +9,7 @@ go tool gostyle lint ./...              # analyzers, non-zero exit on findings (
 go tool gostyle helpers ./...           # small, rarely-called funcs as JSON
 go tool gostyle comments [-lines] ./... # narration-comment candidates as JSON (or file:line lines)
 go tool gostyle skills install          # write go-review / helper-review / comment-review into .claude/skills
+go tool gostyle version                 # print the pinned version (also stamped into each installed SKILL.md)
 ```
 
 Rules: `pgiter`, `sqlstyle`, `discardederr`, `handlererr`, `stdlog`, `ctxbackground`,

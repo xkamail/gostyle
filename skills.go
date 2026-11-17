@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 //go:embed skills
@@ -36,6 +37,8 @@ func runSkills(args []string) {
 		if err != nil {
 			return err
 		}
+		data = []byte(strings.Replace(string(data), "<!-- Installed by `go tool gostyle skills install`",
+			"<!-- Installed by gostyle "+version()+" (`go tool gostyle skills install`)", 1))
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
 		}

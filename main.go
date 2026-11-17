@@ -6,6 +6,7 @@
 //	gostyle comments ./...               # narration-comment candidates as JSON (comment-review)
 //	gostyle comments -lines ./...        # same, as file:line: message for reviewdog
 //	gostyle skills install               # write the review skills into .claude/skills
+//	gostyle version                      # print the gostyle version
 //
 // lint knows a package is a handler when it sits under <module>/api, /apis or /backoffice,
 // and a worker under <module>/worker, where <module> is the analyzed package's own module.
@@ -25,9 +26,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 )
 
-const usage = "usage: gostyle <lint|helpers|comments|skills> [flags] <packages>"
+const usage = "usage: gostyle <lint|helpers|comments|skills|version> [flags] <packages>"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -45,8 +47,20 @@ func main() {
 		runComments(args)
 	case "skills":
 		runSkills(args)
+	case "version":
+		fmt.Println(version())
 	default:
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
+}
+
+// version is the module version Go stamped into the binary: vX.Y.Z when run as
+// `go tool gostyle` or installed with `go install ...@vX.Y.Z`, "(devel)" from a checkout.
+func version() string {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "(unknown)"
+	}
+	return bi.Main.Version
 }
