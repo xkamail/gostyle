@@ -6,15 +6,15 @@ func TestMoneyName(t *testing.T) {
 	for name, want := range map[string]bool{
 		"price":       true,
 		"totalAmount": true,
-		"CoinRate":    true,
+		"FeeRate":     true,
 		"Fees":        true,
-		"gem_count":   true,
+		"price_list":  true,
 		"management":  false,
 		"Feedback":    false,
 		"pricing":     false,
 	} {
-		if got := moneyName.MatchString(name); got != want {
-			t.Errorf("moneyName.MatchString(%q) = %v, want %v", name, got, want)
+		if got := moneyRegexp(moneyWords).MatchString(name); got != want {
+			t.Errorf("moneyRegexp(moneyWords).MatchString(%q) = %v, want %v", name, got, want)
 		}
 	}
 }

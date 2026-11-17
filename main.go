@@ -5,9 +5,12 @@
 //	gostyle helpers ./...                # small, rarely-called funcs as JSON (helper-review)
 //	gostyle comments ./...               # narration-comment candidates as JSON (comment-review)
 //	gostyle comments -lines ./...        # same, as file:line: message for reviewdog
+//	gostyle skills install               # write the review skills into .claude/skills
 //
 // lint knows a package is a handler when it sits under <module>/api, /apis or /backoffice,
 // and a worker under <module>/worker, where <module> is the analyzed package's own module.
+// Repo-specific settings are flags: -moneydecimal.words / -moneydecimal.extra name the
+// money fields, -validfirst.authfirst=<tree> lets an authorize* call precede Valid().
 //
 // helpers never fails: whether a helper earns its name is a judgment call. A func is
 // skipped when its doc comment contains "helperscan:keep", when it is referenced as a value,
@@ -24,7 +27,7 @@ import (
 	"os"
 )
 
-const usage = "usage: gostyle <lint|helpers|comments> [flags] <packages>"
+const usage = "usage: gostyle <lint|helpers|comments|skills> [flags] <packages>"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -40,6 +43,8 @@ func main() {
 		runHelpers(args)
 	case "comments":
 		runComments(args)
+	case "skills":
+		runSkills(args)
 	default:
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)

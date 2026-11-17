@@ -25,7 +25,6 @@ var (
 	acronym   = regexp.MustCompile(`(^|[a-z0-9])(Id|Ids|Url|Urls|Uri|Api|Http|Json|Sql|Ip)([A-Z0-9]|$)`)
 	codeToken = regexp.MustCompile(`[(){}]|:=|\breturn\b`)
 	banner    = regexp.MustCompile(`^\s*[-=*#~/]{3,}`)
-	moneyName = regexp.MustCompile(`(^(price|amount|balance|coin|diamond|gem|quantity|fee)|(Price|Amount|Balance|Coin|Diamond|Gem|Quantity|Fee))s?([A-Z0-9_]|$)`)
 )
 
 func runLint() {
@@ -301,10 +300,36 @@ var acronymName = &analysis.Analyzer{
 	},
 }
 
+var (
+	moneyWords     = "price,amount,balance,quantity,fee"
+	moneyExtra     string
+	authorizeFirst string
+)
+
+func init() {
+	moneyDecimal.Flags.StringVar(&moneyWords, "words", moneyWords, "comma-separated name stems that hold money")
+	moneyDecimal.Flags.StringVar(&moneyExtra, "extra", "", "comma-separated stems added to -words")
+	validFirst.Flags.StringVar(&authorizeFirst, "authfirst", "", "handler tree (e.g. backoffice) where an authorize* call may precede Valid()")
+}
+
+// moneyRegexp matches a name whose word starts with one of the stems, in camelCase
+// or snake_case, so "totalAmount" and "fee_total" match but "management" does not.
+func moneyRegexp(words string) *regexp.Regexp {
+	var lower, upper []string
+	for w := range strings.SplitSeq(words, ",") {
+		if w = strings.ToLower(strings.TrimSpace(w)); w != "" {
+			lower = append(lower, regexp.QuoteMeta(w))
+			upper = append(upper, regexp.QuoteMeta(strings.ToUpper(w[:1])+w[1:]))
+		}
+	}
+	return regexp.MustCompile(`(^(` + strings.Join(lower, "|") + `)|(` + strings.Join(upper, "|") + `))s?([A-Z0-9_]|$)`)
+}
+
 var moneyDecimal = &analysis.Analyzer{
 	Name: "moneydecimal",
-	Doc:  "money/quantity/balance/coin/diamond/gem fields and params are decimal.Decimal, never float",
+	Doc:  "money fields and params (names from -words/-extra) are decimal.Decimal, never float",
 	Run: func(pass *analysis.Pass) (any, error) {
+		moneyName := moneyRegexp(moneyWords + "," + moneyExtra)
 		for id, obj := range pass.TypesInfo.Defs {
 			v, ok := obj.(*types.Var)
 			if !ok || v.Kind() == types.LocalVar || v.Kind() == types.RecvVar ||
@@ -325,12 +350,12 @@ var moneyDecimal = &analysis.Analyzer{
 
 var validFirst = &analysis.Analyzer{
 	Name: "validfirst",
-	Doc:  "handlers validate params first: if err := p.Valid(); err != nil (after iam.Authorize in backoffice)",
+	Doc:  "handlers validate params first: if err := p.Valid(); err != nil (after an authorize* call in the -authfirst tree)",
 	Run: func(pass *analysis.Pass) (any, error) {
 		if !isHandlerPkg(pass) {
 			return nil, nil
 		}
-		backoffice := strings.HasPrefix(pass.Pkg.Path()+"/", modulePath(pass)+"/backoffice/")
+		authTree := authorizeFirst != "" && strings.HasPrefix(pass.Pkg.Path()+"/", modulePath(pass)+"/"+authorizeFirst+"/")
 		initCall := func(s ast.Stmt) *ast.CallExpr {
 			ifs, ok := s.(*ast.IfStmt)
 			if !ok {
@@ -378,7 +403,7 @@ var validFirst = &analysis.Analyzer{
 				}
 				isAuthorizeCall := func(s ast.Stmt) bool {
 					c := initCall(s)
-					if !backoffice || c == nil {
+					if !authTree || c == nil {
 						return false
 					}
 					fn, ok := typeutil.Callee(pass.TypesInfo, c).(*types.Func)
@@ -397,8 +422,8 @@ var validFirst = &analysis.Analyzer{
 					}
 				}
 				where := "first statement"
-				if backoffice {
-					where = "first statement after iam.Authorize"
+				if authTree {
+					where = "first statement after the authorize call"
 				}
 				pass.Reportf(fd.Name.Pos(), "%s: %s must be `if err := %s.Valid(); err != nil { return nil, err }`", fd.Name.Name, where, p)
 			}
