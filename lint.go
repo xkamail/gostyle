@@ -30,7 +30,7 @@ var (
 func runLint() {
 	multichecker.Main(
 		pgIter, sqlStyle, discardedErr, handlerErr, stdLog, ctxBackground,
-		acronymName, moneyDecimal, validFirst, omitEmpty, slopComment, zeroDecl,
+		acronymName, moneyDecimal, validFirst, omitEmpty, slopComment, zeroDecl, exportFirst,
 	)
 }
 
@@ -607,4 +607,60 @@ func isZeroLit(pass *analysis.Pass, e ast.Expr) bool {
 		return len(e.Elts) == 0 && isStruct
 	}
 	return false
+}
+
+var exportFirst = &analysis.Analyzer{
+	Name: "exportfirst",
+	Doc:  "declare a file's exported funcs and methods above its unexported ones",
+	Run: func(pass *analysis.Pass) (any, error) {
+		if pass.Pkg.Name() == "main" {
+			return nil, nil
+		}
+		for _, f := range pass.Files {
+			if ast.IsGenerated(f) || isTest(pass, f) {
+				continue
+			}
+			var first *ast.FuncDecl
+			for _, d := range f.Decls {
+				fd, ok := d.(*ast.FuncDecl)
+				if !ok || fd.Name.Name == "init" {
+					continue
+				}
+				if !isExportedFunc(fd) {
+					if first == nil {
+						first = fd
+					}
+					continue
+				}
+				if first != nil {
+					pass.Reportf(fd.Pos(), "exported %s is declared below unexported %s (line %d); move exported funcs above unexported ones",
+						fd.Name.Name, first.Name.Name, pass.Fset.Position(first.Pos()).Line)
+				}
+			}
+		}
+		return nil, nil
+	},
+}
+
+// isExportedFunc treats a method as exported only when its receiver type is too:
+// an exported method on an unexported type isn't part of the package API.
+func isExportedFunc(fd *ast.FuncDecl) bool {
+	if !fd.Name.IsExported() {
+		return false
+	}
+	if fd.Recv == nil || len(fd.Recv.List) == 0 {
+		return true
+	}
+	t := fd.Recv.List[0].Type
+	if s, ok := t.(*ast.StarExpr); ok {
+		t = s.X
+	}
+	switch x := t.(type) {
+	case *ast.IndexExpr:
+		t = x.X
+	case *ast.IndexListExpr:
+		t = x.X
+	}
+	id, ok := t.(*ast.Ident)
+	return ok && id.IsExported()
 }

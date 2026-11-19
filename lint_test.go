@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"golang.org/x/tools/go/analysis/analysistest"
+)
 
 func TestMoneyName(t *testing.T) {
 	for name, want := range map[string]bool{
@@ -49,4 +53,8 @@ func TestBanner(t *testing.T) {
 			t.Errorf("banner.MatchString(%q) = %v, want %v", text, got, want)
 		}
 	}
+}
+
+func TestExportFirst(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), exportFirst, "exportfirst")
 }
