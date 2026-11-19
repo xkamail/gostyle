@@ -58,3 +58,7 @@ func TestBanner(t *testing.T) {
 func TestExportFirst(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), exportFirst, "exportfirst")
 }
+
+func TestSQLArgs(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), sqlArgs, "sqlargs")
+}

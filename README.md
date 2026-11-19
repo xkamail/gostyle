@@ -37,7 +37,7 @@ go tool gostyle skills install          # write go-review / helper-review / comm
 go tool gostyle version                 # print the pinned version (also stamped into each installed SKILL.md)
 ```
 
-Rules: `pgiter`, `sqlstyle`, `discardederr`, `handlererr`, `stdlog`, `ctxbackground`,
+Rules: `pgiter`, `sqlstyle`, `sqlargs`, `discardederr`, `handlererr`, `stdlog`, `ctxbackground`,
 `acronym`, `moneydecimal`, `validfirst`, `omitempty`, `slopcomment`, `zerodecl`, `exportfirst`.
 Run `go tool gostyle lint help` for each rule's description.
 

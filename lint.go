@@ -29,7 +29,7 @@ var (
 
 func runLint() {
 	multichecker.Main(
-		pgIter, sqlStyle, discardedErr, handlerErr, stdLog, ctxBackground,
+		pgIter, sqlStyle, sqlArgs, discardedErr, handlerErr, stdLog, ctxBackground,
 		acronymName, moneyDecimal, validFirst, omitEmpty, slopComment, zeroDecl, exportFirst,
 	)
 }
@@ -131,6 +131,58 @@ var sqlStyle = &analysis.Analyzer{
 				if m := upperSQL.FindString(sqlQuoted.ReplaceAllString(lit.Value, "")); m != "" {
 					pass.Reportf(lit.Pos(), "SQL keywords must be lowercase (found %q)", m)
 				}
+				return true
+			})
+		}
+		return nil, nil
+	},
+}
+
+var sqlArgs = &analysis.Analyzer{
+	Name: "sqlargs",
+	Doc:  "args after a multi-line SQL string, and Scan args, go one per line with ) on its own line",
+	Run: func(pass *analysis.Pass) (any, error) {
+		line := func(p token.Pos) int { return pass.Fset.Position(p).Line }
+		onePerLine := func(open token.Pos, args []ast.Expr, closing token.Pos, what string) {
+			prev := line(open)
+			for _, a := range args {
+				if line(a.Pos()) <= prev {
+					pass.Reportf(a.Pos(), "put each %s on its own line", what)
+					return
+				}
+				prev = line(a.End())
+			}
+			if line(closing) <= prev {
+				pass.Reportf(closing, "put ) after the last %s on its own line", what)
+			}
+		}
+		for _, f := range pass.Files {
+			ast.Inspect(f, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Scan" && len(call.Args) > 1 {
+					if inner, ok := sel.X.(*ast.CallExpr); ok && pgFunc(pass, inner) == "QueryRow" {
+						onePerLine(call.Lparen, call.Args, call.Rparen, "Scan arg")
+					}
+				}
+				idx := 1
+				switch pgFunc(pass, call) {
+				case "Exec", "QueryRow", "Query":
+				case "Iter":
+					idx = 2
+				default:
+					return true
+				}
+				if len(call.Args) <= idx+1 {
+					return true
+				}
+				lit, ok := call.Args[idx].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING || line(lit.Pos()) == line(lit.End()) {
+					return true
+				}
+				onePerLine(lit.End(), call.Args[idx+1:], call.Rparen, "query arg")
 				return true
 			})
 		}
