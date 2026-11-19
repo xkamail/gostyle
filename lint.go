@@ -611,7 +611,7 @@ func isZeroLit(pass *analysis.Pass, e ast.Expr) bool {
 
 var exportFirst = &analysis.Analyzer{
 	Name: "exportfirst",
-	Doc:  "declare a file's exported funcs and methods above its unexported ones",
+	Doc:  "declare a file's exported funcs, methods and vars above its unexported ones",
 	Run: func(pass *analysis.Pass) (any, error) {
 		if pass.Pkg.Name() == "main" {
 			return nil, nil
@@ -620,21 +620,36 @@ var exportFirst = &analysis.Analyzer{
 			if ast.IsGenerated(f) || isTest(pass, f) {
 				continue
 			}
-			var first *ast.FuncDecl
-			for _, d := range f.Decls {
-				fd, ok := d.(*ast.FuncDecl)
-				if !ok || fd.Name.Name == "init" {
-					continue
-				}
-				if !isExportedFunc(fd) {
-					if first == nil {
-						first = fd
+			var firstFunc, firstVar *ast.Ident
+			check := func(first **ast.Ident, id *ast.Ident, exported bool, kind string) {
+				if !exported {
+					if *first == nil {
+						*first = id
 					}
-					continue
+					return
 				}
-				if first != nil {
-					pass.Reportf(fd.Pos(), "exported %s is declared below unexported %s (line %d); move exported funcs above unexported ones",
-						fd.Name.Name, first.Name.Name, pass.Fset.Position(first.Pos()).Line)
+				if *first != nil {
+					pass.Reportf(id.Pos(), "exported %s is declared below unexported %s (line %d); move exported %s above unexported ones",
+						id.Name, (*first).Name, pass.Fset.Position((*first).Pos()).Line, kind)
+				}
+			}
+			for _, d := range f.Decls {
+				switch d := d.(type) {
+				case *ast.FuncDecl:
+					if d.Name.Name != "init" {
+						check(&firstFunc, d.Name, isExportedFunc(d), "funcs")
+					}
+				case *ast.GenDecl:
+					if d.Tok != token.VAR {
+						continue
+					}
+					for _, spec := range d.Specs {
+						for _, id := range spec.(*ast.ValueSpec).Names {
+							if id.Name != "_" {
+								check(&firstVar, id, id.IsExported(), "vars")
+							}
+						}
+					}
 				}
 			}
 		}
