@@ -140,9 +140,16 @@ var sqlStyle = &analysis.Analyzer{
 
 var sqlArgs = &analysis.Analyzer{
 	Name: "sqlargs",
-	Doc:  "args after a multi-line SQL string, and Scan args, go one per line with ) on its own line",
+	Doc:  "args after a multi-line SQL string, and its Scan args, go one per line with ) on its own line",
 	Run: func(pass *analysis.Pass) (any, error) {
 		line := func(p token.Pos) int { return pass.Fset.Position(p).Line }
+		multiLineSQL := func(call *ast.CallExpr, idx int) bool {
+			if len(call.Args) <= idx {
+				return false
+			}
+			lit, ok := call.Args[idx].(*ast.BasicLit)
+			return ok && lit.Kind == token.STRING && line(lit.Pos()) != line(lit.End())
+		}
 		onePerLine := func(open token.Pos, args []ast.Expr, closing token.Pos, what string) {
 			prev := line(open)
 			for _, a := range args {
@@ -162,8 +169,9 @@ var sqlArgs = &analysis.Analyzer{
 				if !ok {
 					return true
 				}
-				if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Scan" && len(call.Args) > 1 {
-					if inner, ok := sel.X.(*ast.CallExpr); ok && pgFunc(pass, inner) == "QueryRow" {
+				if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Scan" && len(call.Args) > 0 {
+					if inner, ok := sel.X.(*ast.CallExpr); ok && pgFunc(pass, inner) == "QueryRow" &&
+						(len(call.Args) > 1 || multiLineSQL(inner, 1)) {
 						onePerLine(call.Lparen, call.Args, call.Rparen, "Scan arg")
 					}
 				}
@@ -178,11 +186,10 @@ var sqlArgs = &analysis.Analyzer{
 				if len(call.Args) <= idx+1 {
 					return true
 				}
-				lit, ok := call.Args[idx].(*ast.BasicLit)
-				if !ok || lit.Kind != token.STRING || line(lit.Pos()) == line(lit.End()) {
+				if !multiLineSQL(call, idx) {
 					return true
 				}
-				onePerLine(lit.End(), call.Args[idx+1:], call.Rparen, "query arg")
+				onePerLine(call.Args[idx].End(), call.Args[idx+1:], call.Rparen, "query arg")
 				return true
 			})
 		}

@@ -127,7 +127,7 @@ Add this block to the subagent prompt:
 - All SQL keywords lowercase (`select`, `from`, `where`, `join`)
 - No `::text` casts — Go's `database/sql` handles conversion
 - Dynamic queries (optional filters, search, conditional WHERE) → `pgstmt`. Raw SQL via `pgctx` only for fixed queries
-- One column per line in SQL strings; after a multi-line SQL string, each query arg on its own line and `)` on its own line (`` `,\n\tid,\n).Scan( ``); one arg per line in `Scan(...)`
+- One column per line in SQL strings; after a multi-line SQL string, each query arg on its own line and `)` on its own line (`` `,\n\tid,\n).Scan( ``); one arg per line in `Scan(...)`, even a single one after a multi-line SQL string
 - Multi-row reads use `pgctx.Iter` — never `pgctx.Query` + manual `rows.Next()`
 - Single row → `pgctx.QueryRow`. Writes → `pgctx.Exec`
 - Slices initialized empty before `pgctx.Iter`: `items := make([]Item, 0)` (not `var items []Item`)
