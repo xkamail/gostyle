@@ -743,15 +743,19 @@ func isExportedFunc(fd *ast.FuncDecl) bool {
 
 var testFile = &analysis.Analyzer{
 	Name: "testfile",
-	Doc:  "name a test file after the source file it tests: foo.go → foo_test.go or foo_internal_test.go",
+	Doc:  "name a test file after the source file it tests: foo.go → foo_test.go",
 	Run: func(pass *analysis.Pass) (any, error) {
 		for _, f := range pass.Files {
 			path := pass.Fset.Position(f.Package).Filename
 			name := filepath.Base(path)
-			if !strings.HasSuffix(name, "_test.go") || name == "main_test.go" || ast.IsGenerated(f) {
+			if !strings.HasSuffix(name, "_test.go") || ast.IsGenerated(f) {
 				continue
 			}
-			src := strings.TrimSuffix(strings.TrimSuffix(name, "_test.go"), "_internal") + ".go"
+			if name == "main_test.go" {
+				pass.Reportf(f.Package, "no main_test.go; test the code in the test file of the source file that declares it")
+				continue
+			}
+			src := strings.TrimSuffix(name, "_test.go") + ".go"
 			if _, err := os.Stat(filepath.Join(filepath.Dir(path), src)); err == nil {
 				continue
 			}

@@ -284,7 +284,7 @@ When the Complexity Pass activates on a function >~100 lines, or any changed fil
 **How to report.** Complexity findings are correctness findings — severities follow the guide (a real bug is 🔴 even if the style checklist is spotless). For each, give the failure scenario in one line (concrete inputs → wrong outcome), not just the rule. If you deep-reviewed a complex function and found it correct, say so in one ✅ line naming what you verified (e.g. "createOrder: side effect correctly dispatched post-commit; lock order consistent") — this is the one place restating a passing check is worth it, because it tells the user the hard path was actually examined.
 
 ### Test Conventions (`*_test.go`)
-- One test file per source file: `foo.go` → `foo_test.go`; white-box tests of unexported code → `foo_internal_test.go`; `main_test.go` only for `TestMain`. A new scenario, bug or feature (rollback, race, authz, coverage) is a `t.Run` subtest in `foo_test.go`, not a new `foo_<scenario>_test.go`, and a test file is never named for a handler or func (`get_match_test.go`) — it goes in the test file of the source file that declares it
+- One test file per source file: `foo.go` → `foo_test.go` — no `_internal_test.go` (test unexported code through the exported API) and no `main_test.go`, even in a `main` package. A new scenario, bug or feature (rollback, race, authz, coverage) is a `t.Run` subtest in `foo_test.go`, not a new `foo_<scenario>_test.go`, and a test file is never named for a handler or func (`get_match_test.go`) — it goes in the test file of the source file that declares it
 - External test package: `package xxx_test`
 - `tu.Setup()` + `defer tc.Teardown()` at the top of every `TestXxx`
 - `t.Parallel()` as the first call inside `TestXxx`
