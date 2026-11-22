@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/multichecker"
@@ -743,8 +744,20 @@ func isExportedFunc(fd *ast.FuncDecl) bool {
 
 var testFile = &analysis.Analyzer{
 	Name: "testfile",
-	Doc:  "name a test file after the source file it tests: foo.go → foo_test.go",
+	Doc:  "name a test file after the source file it tests (foo.go → foo_test.go), and keep in it only tests that use foo.go",
 	Run: func(pass *analysis.Pass) (any, error) {
+		helpers := map[types.Object]*ast.FuncDecl{}
+		for _, f := range pass.Files {
+			if !isTest(pass, f) {
+				continue
+			}
+			for _, d := range f.Decls {
+				if fd, ok := d.(*ast.FuncDecl); ok {
+					helpers[pass.TypesInfo.Defs[fd.Name]] = fd
+				}
+			}
+		}
+		target := strings.TrimSuffix(pass.Pkg.Path(), "_test")
 		for _, f := range pass.Files {
 			path := pass.Fset.Position(f.Package).Filename
 			name := filepath.Base(path)
@@ -756,11 +769,72 @@ var testFile = &analysis.Analyzer{
 				continue
 			}
 			src := strings.TrimSuffix(name, "_test.go") + ".go"
-			if _, err := os.Stat(filepath.Join(filepath.Dir(path), src)); err == nil {
+			if _, err := os.Stat(filepath.Join(filepath.Dir(path), src)); err != nil {
+				pass.Reportf(f.Package, "test file %s has no source file %s; move its tests into the test file of the source they cover, as t.Run subtests", name, src)
 				continue
 			}
-			pass.Reportf(f.Package, "test file %s has no source file %s; move its tests into the test file of the source they cover, as t.Run subtests", name, src)
+			for _, d := range f.Decls {
+				fd, ok := d.(*ast.FuncDecl)
+				if !ok || fd.Recv != nil || !isTestFunc(fd.Name.Name) {
+					continue
+				}
+				used := testedFiles(pass, fd, target, helpers)
+				if used[src] > 0 {
+					continue
+				}
+				best := ""
+				for file, n := range used {
+					if best == "" || n > used[best] || n == used[best] && file < best {
+						best = file
+					}
+				}
+				if best == "" {
+					pass.Reportf(fd.Name.Pos(), "%s uses nothing declared in %s; move it to the test file of the source it tests", fd.Name.Name, src)
+					continue
+				}
+				pass.Reportf(fd.Name.Pos(), "%s uses nothing declared in %s; move it to %s, next to %s",
+					fd.Name.Name, src, strings.TrimSuffix(best, ".go")+"_test.go", best)
+			}
 		}
 		return nil, nil
 	},
+}
+
+// isTestFunc matches the names go test runs as tests, except TestMain.
+func isTestFunc(name string) bool {
+	rest, ok := strings.CutPrefix(name, "Test")
+	return ok && rest != "Main" && (rest == "" || !unicode.IsLower([]rune(rest)[0]))
+}
+
+// testedFiles counts, per non-test source file of the package under test, the uses
+// inside fd of things that file declares, following calls into test helpers.
+func testedFiles(pass *analysis.Pass, fd *ast.FuncDecl, target string, helpers map[types.Object]*ast.FuncDecl) map[string]int {
+	used := map[string]int{}
+	seen := map[*ast.FuncDecl]bool{}
+	var visit func(*ast.FuncDecl)
+	visit = func(fd *ast.FuncDecl) {
+		seen[fd] = true
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			id, ok := n.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			obj := pass.TypesInfo.Uses[id]
+			if h := helpers[obj]; h != nil {
+				if !seen[h] {
+					visit(h)
+				}
+				return true
+			}
+			if obj == nil || obj.Pkg() == nil || obj.Pkg().Path() != target {
+				return true
+			}
+			if file := filepath.Base(pass.Fset.Position(obj.Pos()).Filename); !strings.HasSuffix(file, "_test.go") {
+				used[file]++
+			}
+			return true
+		})
+	}
+	visit(fd)
+	return used
 }
