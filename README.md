@@ -38,7 +38,7 @@ go tool gostyle version                 # print the pinned version (also stamped
 ```
 
 Rules: `pgiter`, `sqlstyle`, `sqlargs`, `discardederr`, `handlererr`, `stdlog`, `ctxbackground`,
-`acronym`, `moneydecimal`, `validfirst`, `omitempty`, `slopcomment`, `zerodecl`, `exportfirst`, `testfile`.
+`acronym`, `moneydecimal`, `validfirst`, `omitempty`, `slopcomment`, `zerodecl`, `exportfirst`, `testfile`, `sqlcomment`.
 Run `go tool gostyle lint help` for each rule's description.
 
 Per-repo settings are flags, e.g. `-moneydecimal.extra=credit,points` or `-validfirst.authfirst=admin`.

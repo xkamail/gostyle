@@ -1,16 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"go/ast"
 	"go/constant"
 	"go/parser"
 	"go/token"
 	"go/types"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode"
 
 	"golang.org/x/tools/go/analysis"
@@ -33,7 +36,7 @@ var (
 func runLint() {
 	multichecker.Main(
 		pgIter, sqlStyle, sqlArgs, discardedErr, handlerErr, stdLog, ctxBackground,
-		acronymName, moneyDecimal, validFirst, omitEmpty, slopComment, zeroDecl, exportFirst, testFile,
+		acronymName, moneyDecimal, validFirst, omitEmpty, slopComment, zeroDecl, exportFirst, testFile, sqlComment,
 	)
 }
 
@@ -837,4 +840,84 @@ func testedFiles(pass *analysis.Pass, fd *ast.FuncDecl, target string, helpers m
 	}
 	visit(fd)
 	return used
+}
+
+// scannedSchemas keeps each schema directory to one scan per run, whichever package reaches it first.
+var scannedSchemas sync.Map
+
+var sqlComment = &analysis.Analyzer{
+	Name: "sqlcomment",
+	Doc:  "no -- or /* */ comments in schema/*.sql",
+	Run: func(pass *analysis.Pass) (any, error) {
+		if len(pass.Files) == 0 {
+			return nil, nil
+		}
+		dir := schemaDir(filepath.Dir(pass.Fset.Position(pass.Files[0].Package).Filename))
+		if dir == "" {
+			return nil, nil
+		}
+		if _, done := scannedSchemas.LoadOrStore(dir, true); done {
+			return nil, nil
+		}
+		return nil, filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || filepath.Ext(path) != ".sql" {
+				return err
+			}
+			src, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			tf := pass.Fset.AddFile(path, -1, len(src))
+			tf.SetLinesForContent(src)
+			for _, off := range sqlComments(src) {
+				pass.Reportf(tf.Pos(off), "no comments in schema SQL; delete it")
+			}
+			return nil
+		})
+	},
+}
+
+// schemaDir finds the schema/ directory at or above dir, stopping at the module root.
+func schemaDir(dir string) string {
+	for {
+		if fi, err := os.Stat(filepath.Join(dir, "schema")); err == nil && fi.IsDir() {
+			return filepath.Join(dir, "schema")
+		}
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return ""
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// sqlComments returns the byte offset of each -- and /* */ comment in src, skipping
+// '...' strings and "..." identifiers. A doubled single quote inside a string needs no special case:
+// it closes the string and the next quote reopens it.
+func sqlComments(src []byte) []int {
+	var offs []int
+	for i := 0; i < len(src); i++ {
+		switch {
+		case src[i] == '\'' || src[i] == '"':
+			q := src[i]
+			for i++; i < len(src) && src[i] != q; i++ {
+			}
+		case bytes.HasPrefix(src[i:], []byte("--")):
+			offs = append(offs, i)
+			for i < len(src) && src[i] != '\n' {
+				i++
+			}
+		case bytes.HasPrefix(src[i:], []byte("/*")):
+			offs = append(offs, i)
+			end := bytes.Index(src[i+2:], []byte("*/"))
+			if end < 0 {
+				return offs
+			}
+			i += end + 3
+		}
+	}
+	return offs
 }

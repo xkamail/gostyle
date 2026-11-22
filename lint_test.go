@@ -1,6 +1,8 @@
 package main
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"golang.org/x/tools/go/analysis/analysistest"
@@ -65,4 +67,22 @@ func TestSQLArgs(t *testing.T) {
 
 func TestTestFile(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), testFile, "testfile")
+}
+
+func TestSQLComments(t *testing.T) {
+	src := "-- top\n" +
+		"create table t (\n" +
+		"    id int, -- trailing\n" +
+		"    note text default '-- not a comment',\n" +
+		"    quote text default 'it''s -- still a string',\n" +
+		"    \"odd--name\" int /* block\n" +
+		"    spans */\n" +
+		");\n"
+	var lines []int
+	for _, off := range sqlComments([]byte(src)) {
+		lines = append(lines, strings.Count(src[:off], "\n")+1)
+	}
+	if want := []int{1, 3, 6}; !slices.Equal(lines, want) {
+		t.Errorf("comment lines = %v, want %v", lines, want)
+	}
 }
