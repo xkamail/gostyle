@@ -62,3 +62,7 @@ func TestExportFirst(t *testing.T) {
 func TestSQLArgs(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), sqlArgs, "sqlargs")
 }
+
+func TestTestFile(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), testFile, "testfile")
+}
