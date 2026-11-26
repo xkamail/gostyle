@@ -86,3 +86,7 @@ func TestSQLComments(t *testing.T) {
 		t.Errorf("comment lines = %v, want %v", lines, want)
 	}
 }
+
+func TestPkgAlias(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), pkgAlias, "pkgalias")
+}

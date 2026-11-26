@@ -36,7 +36,7 @@ var (
 func runLint() {
 	multichecker.Main(
 		pgIter, sqlStyle, sqlArgs, discardedErr, handlerErr, stdLog, ctxBackground,
-		acronymName, moneyDecimal, validFirst, omitEmpty, slopComment, zeroDecl, exportFirst, testFile, sqlComment,
+		acronymName, moneyDecimal, validFirst, omitEmpty, slopComment, zeroDecl, exportFirst, testFile, sqlComment, pkgAlias,
 	)
 }
 
@@ -840,6 +840,25 @@ func testedFiles(pass *analysis.Pass, fd *ast.FuncDecl, target string, helpers m
 	}
 	visit(fd)
 	return used
+}
+
+var pkgAlias = &analysis.Analyzer{
+	Name: "pkgalias",
+	Doc:  "no pkg-prefixed or -suffixed import alias (userpkg, pkguser); check for an import cycle or name clash first",
+	Run: func(pass *analysis.Pass) (any, error) {
+		for _, f := range pass.Files {
+			for _, imp := range f.Imports {
+				if imp.Name == nil {
+					continue
+				}
+				name := strings.ToLower(imp.Name.Name)
+				if name != "pkg" && (strings.HasPrefix(name, "pkg") || strings.HasSuffix(name, "pkg")) {
+					pass.Reportf(imp.Pos(), "import alias %s: check for an import cycle or name clash first; drop the alias, or use {module}v1 for a real clash", imp.Name.Name)
+				}
+			}
+		}
+		return nil, nil
+	},
 }
 
 // scannedSchemas keeps each schema directory to one scan per run, whichever package reaches it first.

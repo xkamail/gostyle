@@ -88,7 +88,7 @@ Add this block to the subagent prompt:
 - No `/api/v1` prefix in handler code (belongs in `mux.Group`)
 - List item types named `Item`, not `BookingItem` / `RoomItem` etc.
 - File section order, top to bottom: (1) sentinel error declarations (`var ErrXxx = ...`), (2) public function surface (exported funcs), (3) local/shared/reuse code (unexported funcs & helpers). Errors first, exported above unexported. Flag files where a sentinel error is declared mid-file or an unexported helper sits above an exported func.
-- No alias imports unless there's a real package-name collision; collision case uses `{module}v1`, not `pkg{module}`
+- No alias imports unless there's a real package-name collision; collision case uses `{module}v1`, not `pkg{module}` / `{module}pkg` (enforced by `gostyle pkgalias`) — check for an import cycle or name clash first
 
 ### File Placement (minimal — the repo's full map is in `references/local.md`)
 - `api/{module}/*.go` holds the arpc handler funcs. Routes are registered centrally (e.g. `api/handler.go`'s `Mount(mux, am)`); `cmd/api/main.go` creates the mux + `arpc.Manager` and only calls `api.Mount(...)`.
