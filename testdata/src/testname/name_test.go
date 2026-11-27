@@ -18,3 +18,19 @@ func TestName(t *testing.T) {
 func BenchmarkName(b *testing.B) {
 	b.Run("snake_case", func(b *testing.B) {})
 }
+
+func TestCheckout(t *testing.T) {}
+
+func TestCheckout_WithCoupon(t *testing.T) {} // want `TestCheckout_WithCoupon: _ in a test name is only for TestType_Method; make "WithCoupon" a t.Run\("with coupon"\) case in TestCheckout`
+
+func TestCheckout_coupon_expired(t *testing.T) {} // want `t.Run\("coupon expired"\) case in TestCheckout`
+
+func TestItem_Price(t *testing.T) {}
+
+func TestItem_Price_Zero(t *testing.T) {} // want `make "Zero" a t.Run\("zero"\) case in TestItem_Price`
+
+func TestItem_Discount(t *testing.T) {} // want `t.Run\("discount"\) case in TestItem`
+
+func TestRefund_Partial(t *testing.T) {} // want `t.Run\("partial"\) case in TestRefund`
+
+func Test_lower(t *testing.T) {}

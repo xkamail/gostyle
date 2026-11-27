@@ -851,11 +851,17 @@ var (
 
 var testName = &analysis.Analyzer{
 	Name: "testname",
-	Doc:  "t.Run names are lowercase words with spaces (\"not found\"): no snake_case, camelCase or /",
+	Doc:  "_ in a test name only splits TestType_Method, a scenario is a t.Run case; t.Run names are lowercase words with spaces (\"not found\"): no snake_case, camelCase or /",
 	Run: func(pass *analysis.Pass) (any, error) {
+		scope := targetScope(pass)
 		for _, f := range pass.Files {
 			if !isTest(pass, f) {
 				continue
+			}
+			for _, d := range f.Decls {
+				if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && isTestFunc(fd.Name.Name) {
+					checkTestFuncName(pass, scope, fd.Name)
+				}
 			}
 			ast.Inspect(f, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
@@ -870,24 +876,56 @@ var testName = &analysis.Analyzer{
 				if err != nil {
 					return true
 				}
-				var want string
 				switch {
 				case strings.Contains(name, "/"):
 					pass.Reportf(lit.Pos(), "subtest name %q has a /, which -run reads as a subtest separator; reword it", name)
-					return true
-				case snakeName.MatchString(name):
-					want = strings.ReplaceAll(name, "_", " ")
-				case camelName.MatchString(name):
-					want = camelCut.ReplaceAllString(name, "$1 $2")
-				default:
-					return true
+				case snakeName.MatchString(name) || camelName.MatchString(name):
+					pass.Reportf(lit.Pos(), "subtest name %q: write lowercase words with spaces, e.g. %q", name, caseName(name))
 				}
-				pass.Reportf(lit.Pos(), "subtest name %q: write lowercase words with spaces, e.g. %q", name, strings.ToLower(want))
 				return true
 			})
 		}
 		return nil, nil
 	},
+}
+
+// checkTestFuncName allows _ in a test name only as TestType_Method (or Test_unexported);
+// anything after the func or method is a scenario, which belongs in a t.Run case.
+func checkTestFuncName(pass *analysis.Pass, scope *types.Scope, id *ast.Ident) {
+	head, rest, ok := strings.Cut(strings.TrimPrefix(id.Name, "Test"), "_")
+	if !ok || head == "" {
+		return
+	}
+	if tn, ok := scope.Lookup(head).(*types.TypeName); ok {
+		method, after, _ := strings.Cut(rest, "_")
+		if obj, _, _ := types.LookupFieldOrMethod(types.NewPointer(tn.Type()), true, tn.Pkg(), method); obj != nil {
+			if after == "" {
+				return
+			}
+			head, rest = head+"_"+method, after
+		}
+	}
+	pass.Reportf(id.Pos(), "%s: _ in a test name is only for TestType_Method; make %q a t.Run(%q) case in Test%s",
+		id.Name, rest, caseName(rest), head)
+}
+
+// targetScope is the scope of the package a test file tests: its own, or for an
+// external foo_test package, the foo it imports.
+func targetScope(pass *analysis.Pass) *types.Scope {
+	target, external := strings.CutSuffix(pass.Pkg.Path(), "_test")
+	if external {
+		for _, imp := range pass.Pkg.Imports() {
+			if imp.Path() == target {
+				return imp.Scope()
+			}
+		}
+	}
+	return pass.Pkg.Scope()
+}
+
+// caseName turns a snake_case or camelCase name into lowercase words.
+func caseName(name string) string {
+	return strings.ToLower(strings.ReplaceAll(camelCut.ReplaceAllString(name, "$1 $2"), "_", " "))
 }
 
 func isTRun(pass *analysis.Pass, call *ast.CallExpr) bool {
