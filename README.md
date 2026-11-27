@@ -32,6 +32,7 @@ Check the installed version with `go tool gostyle version` (or `gostyle version`
 ```sh
 go tool gostyle lint ./...              # analyzers, non-zero exit on findings (-<rule>=false disables one)
 go tool gostyle helpers ./...           # small, rarely-called funcs as JSON
+go tool gostyle helpers -tests ./...    # same for _test.go helpers, plus copies with the same body
 go tool gostyle comments [-lines] ./... # narration-comment candidates as JSON (or file:line lines)
 go tool gostyle testcover ./api/cart    # per-test coverage as JSON: tests that reach no block of their own
 go tool gostyle skills install          # write go-review / helper-review / comment-review into .claude/skills

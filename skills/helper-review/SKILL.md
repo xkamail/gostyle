@@ -16,6 +16,8 @@ go tool gostyle helpers ./...                                            # whole
 go tool gostyle helpers ./... | jq '[.[] | select(.pos | startswith("api/booking/"))]'  # one area
 ```
 
+Test helpers are a separate pass: `go tool gostyle helpers -tests ./...` lists funcs in `_test.go` files (not `Test*`/`Benchmark*`/`Fuzz*`/`Example*`), with test call sites as `callers`, plus `duplicates`: helpers elsewhere whose body matches apart from local names. Same rubric, plus: a helper with `duplicates` moves into the repo's shared test package (where `tu.Setup` lives, or the repo's equivalent) and every copy is deleted — unless the copies are about to diverge. A test helper that calls `t.Fatal`/`t.Error` must call `t.Helper()` first.
+
 Always scan `./...` and filter: scanning a subtree hides callers in other packages, so exported funcs look dead.
 
 Each entry: `func` (import path + name), `pos`, `lines`, `exported`, `callers` (production call sites), `testCallers`. Already excluded: methods, funcs used as values (callbacks, handler registration), generated and `_test.go` files, and funcs whose doc comment contains `// helperscan:keep`.

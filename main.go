@@ -3,6 +3,7 @@
 //	gostyle lint ./...                   # analyzers; exits non-zero on findings
 //	gostyle lint -acronym=false ./...    # disable one rule
 //	gostyle helpers ./...                # small, rarely-called funcs as JSON (helper-review)
+//	gostyle helpers -tests ./...         # same for _test.go helpers, with same-body duplicates
 //	gostyle comments ./...               # narration-comment candidates as JSON (comment-review)
 //	gostyle comments -lines ./...        # same, as file:line: message for reviewdog
 //	gostyle testcover ./api/cart         # per-test coverage: tests that reach no block of their own
@@ -16,7 +17,9 @@
 //
 // helpers never fails: whether a helper earns its name is a judgment call. A func is
 // skipped when its doc comment contains "helperscan:keep", when it is referenced as a value,
-// or when it lives in a generated or _test.go file.
+// or when it lives in a generated or _test.go file. With -tests it scans only _test.go files,
+// counts test callers as callers, and also lists any helper whose body matches another's
+// apart from local names (helpers copied between packages).
 //
 // comments never fails either. It scans comments inside func bodies and doc comments on
 // unexported funcs; exported doc comments and struct field comments are left alone because

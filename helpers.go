@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
+	"fmt"
 	"go/ast"
 	"go/types"
 	"log/slog"
@@ -27,12 +29,18 @@ type candidate struct {
 	Exported    bool     `json:"exported"`
 	Callers     []string `json:"callers"`
 	TestCallers int      `json:"testCallers"`
+	Duplicates  []string `json:"duplicates,omitempty"`
 
 	valueUse bool
 	tests    map[string]bool
+	shape    string
 }
 
-func runHelpers(patterns []string) {
+func runHelpers(args []string) {
+	fs := flag.NewFlagSet("gostyle helpers", flag.ExitOnError)
+	inTests := fs.Bool("tests", false, "list helpers in _test.go files instead, with helpers of the same body as duplicates")
+	fs.Parse(args)
+	patterns := fs.Args()
 	if len(patterns) == 0 {
 		patterns = []string{"./..."}
 	}
@@ -64,12 +72,13 @@ func runHelpers(patterns []string) {
 	for _, pkg := range pkgs {
 		for _, f := range pkg.Syntax {
 			name := pkg.Fset.File(f.Pos()).Name()
-			if ast.IsGenerated(f) || strings.HasSuffix(name, "_test.go") {
+			if ast.IsGenerated(f) || strings.HasSuffix(name, "_test.go") != *inTests {
 				continue
 			}
 			for _, d := range f.Decls {
 				fd, ok := d.(*ast.FuncDecl)
-				if !ok || fd.Recv != nil || fd.Name.Name == "main" || fd.Name.Name == "init" ||
+				if !ok || fd.Recv != nil || fd.Body == nil || fd.Name.Name == "main" || fd.Name.Name == "init" ||
+					*inTests && isTestEntry(fd.Name.Name) ||
 					strings.Contains(fd.Doc.Text(), "helperscan:keep") {
 					continue
 				}
@@ -88,6 +97,7 @@ func runHelpers(patterns []string) {
 					Lines:    pkg.Fset.Position(fd.End()).Line - pos.Line + 1,
 					Exported: fd.Name.IsExported(),
 					tests:    map[string]bool{},
+					shape:    funcShape(pkg.TypesInfo, fd),
 				}
 			}
 		}
@@ -131,7 +141,7 @@ func runHelpers(patterns []string) {
 			switch {
 			case !called[id]:
 				c.valueUse = true
-			case strings.HasSuffix(pos.Filename, "_test.go"):
+			case strings.HasSuffix(pos.Filename, "_test.go") && !*inTests:
 				c.tests[at] = true
 			default:
 				if callers[c.Func] == nil {
@@ -142,11 +152,21 @@ func runHelpers(patterns []string) {
 		}
 	}
 
+	shapes := map[string][]string{}
+	for _, c := range cands {
+		shapes[c.shape] = append(shapes[c.shape], c.Func)
+	}
 	out := []*candidate{}
 	for k, c := range cands {
 		c.Callers = slices.Sorted(maps.Keys(callers[k]))
 		c.TestCallers = len(c.tests)
-		if c.valueUse || c.Lines >= maxLines || len(c.Callers) > maxCallers {
+		for _, f := range shapes[c.shape] {
+			if f != c.Func {
+				c.Duplicates = append(c.Duplicates, f)
+			}
+		}
+		slices.Sort(c.Duplicates)
+		if c.valueUse || len(c.Duplicates) == 0 && (c.Lines >= maxLines || len(c.Callers) > maxCallers) {
 			continue
 		}
 		out = append(out, c)
@@ -158,4 +178,38 @@ func runHelpers(patterns []string) {
 		slog.Error("encode", "error", err)
 		os.Exit(1)
 	}
+}
+
+// isTestEntry matches the funcs go test calls itself.
+func isTestEntry(name string) bool {
+	return isTestFunc(name) || name == "TestMain" ||
+		strings.HasPrefix(name, "Benchmark") || strings.HasPrefix(name, "Fuzz") || strings.HasPrefix(name, "Example")
+}
+
+// funcShape prints fd's signature and body as a node sequence with its params and locals
+// blanked, so two funcs that differ only in local names get the same shape.
+func funcShape(info *types.Info, fd *ast.FuncDecl) string {
+	var b strings.Builder
+	visit := func(n ast.Node) bool {
+		switch n := n.(type) {
+		case nil:
+			b.WriteString(") ")
+			return false
+		case *ast.Ident:
+			if obj := info.ObjectOf(n); obj != nil && obj.Pos() >= fd.Pos() && obj.Pos() < fd.End() {
+				b.WriteString("_")
+			} else {
+				b.WriteString(n.Name)
+			}
+		case *ast.BasicLit:
+			b.WriteString(n.Value)
+		default:
+			fmt.Fprintf(&b, "%T(", n)
+		}
+		b.WriteByte(' ')
+		return true
+	}
+	ast.Inspect(fd.Type, visit)
+	ast.Inspect(fd.Body, visit)
+	return b.String()
 }
