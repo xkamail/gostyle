@@ -5,6 +5,7 @@
 //	gostyle helpers ./...                # small, rarely-called funcs as JSON (helper-review)
 //	gostyle comments ./...               # narration-comment candidates as JSON (comment-review)
 //	gostyle comments -lines ./...        # same, as file:line: message for reviewdog
+//	gostyle testcover ./api/cart         # per-test coverage: tests that reach no block of their own
 //	gostyle skills install               # write the review skills into .claude/skills
 //	gostyle version                      # print the gostyle version
 //
@@ -21,6 +22,10 @@
 // unexported funcs; exported doc comments and struct field comments are left alone because
 // godoc and generated OpenAPI specs read them. The unambiguous cases (banners, multi-line
 // commented-out code) are lint's slopcomment rule.
+//
+// testcover runs each top-level test alone and lists the blocks only it reaches. A test
+// with no unique blocks adds no path: fold it into its closest test as a t.Run case.
+// It runs the whole suite once per test, so point it at the packages you changed.
 package main
 
 import (
@@ -29,7 +34,7 @@ import (
 	"runtime/debug"
 )
 
-const usage = "usage: gostyle <lint|helpers|comments|skills|version> [flags] <packages>"
+const usage = "usage: gostyle <lint|helpers|comments|testcover|skills|version> [flags] <packages>"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -45,6 +50,8 @@ func main() {
 		runHelpers(args)
 	case "comments":
 		runComments(args)
+	case "testcover":
+		runTestCover(args)
 	case "skills":
 		runSkills(args)
 	case "version":
