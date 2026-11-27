@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -36,7 +37,7 @@ var (
 func runLint() {
 	multichecker.Main(
 		pgIter, sqlStyle, sqlArgs, discardedErr, handlerErr, stdLog, ctxBackground,
-		acronymName, moneyDecimal, validFirst, omitEmpty, slopComment, zeroDecl, exportFirst, testFile, sqlComment, pkgAlias,
+		acronymName, moneyDecimal, validFirst, omitEmpty, slopComment, zeroDecl, exportFirst, testFile, testName, sqlComment, pkgAlias,
 	)
 }
 
@@ -840,6 +841,63 @@ func testedFiles(pass *analysis.Pass, fd *ast.FuncDecl, target string, helpers m
 	}
 	visit(fd)
 	return used
+}
+
+var (
+	snakeName = regexp.MustCompile(`^[A-Za-z0-9]+(_[A-Za-z0-9]+)+$`)
+	camelName = regexp.MustCompile(`^[A-Za-z][a-z0-9]*([A-Z][a-z0-9]*)+$`)
+	camelCut  = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+)
+
+var testName = &analysis.Analyzer{
+	Name: "testname",
+	Doc:  "t.Run names are lowercase words with spaces (\"not found\"): no snake_case, camelCase or /",
+	Run: func(pass *analysis.Pass) (any, error) {
+		for _, f := range pass.Files {
+			if !isTest(pass, f) {
+				continue
+			}
+			ast.Inspect(f, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok || len(call.Args) != 2 || !isTRun(pass, call) {
+					return true
+				}
+				lit, ok := call.Args[0].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					return true
+				}
+				name, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					return true
+				}
+				var want string
+				switch {
+				case strings.Contains(name, "/"):
+					pass.Reportf(lit.Pos(), "subtest name %q has a /, which -run reads as a subtest separator; reword it", name)
+					return true
+				case snakeName.MatchString(name):
+					want = strings.ReplaceAll(name, "_", " ")
+				case camelName.MatchString(name):
+					want = camelCut.ReplaceAllString(name, "$1 $2")
+				default:
+					return true
+				}
+				pass.Reportf(lit.Pos(), "subtest name %q: write lowercase words with spaces, e.g. %q", name, strings.ToLower(want))
+				return true
+			})
+		}
+		return nil, nil
+	},
+}
+
+func isTRun(pass *analysis.Pass, call *ast.CallExpr) bool {
+	fn, ok := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
+	if !ok || fn.Name() != "Run" || fn.Pkg() == nil || fn.Pkg().Path() != "testing" {
+		return false
+	}
+	recv := fn.Signature().Recv()
+	ptr, ok := recv.Type().(*types.Pointer)
+	return ok && ptr.Elem().(*types.Named).Obj().Name() == "T"
 }
 
 var pkgAlias = &analysis.Analyzer{

@@ -90,3 +90,7 @@ func TestSQLComments(t *testing.T) {
 func TestPkgAlias(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), pkgAlias, "pkgalias")
 }
+
+func TestTestName(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), testName, "testname")
+}
