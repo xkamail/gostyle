@@ -98,3 +98,11 @@ func TestTestName(t *testing.T) {
 func TestTestCleanup(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), testCleanup, "testcleanup")
 }
+
+func TestKindSuffix(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), kindSuffix, "kindsuffix")
+}
+
+func TestStutter(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), stutter, "stutter")
+}

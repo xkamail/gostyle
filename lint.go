@@ -37,7 +37,7 @@ var (
 func runLint() {
 	multichecker.Main(
 		pgIter, sqlStyle, sqlArgs, discardedErr, handlerErr, stdLog, ctxBackground,
-		acronymName, moneyDecimal, validFirst, omitEmpty, slopComment, zeroDecl, exportFirst, testFile, testName, testCleanup, sqlComment, pkgAlias,
+		acronymName, moneyDecimal, validFirst, omitEmpty, slopComment, zeroDecl, exportFirst, testFile, testName, testCleanup, sqlComment, pkgAlias, kindSuffix, stutter,
 	)
 }
 
@@ -1070,6 +1070,117 @@ var pkgAlias = &analysis.Analyzer{
 		}
 		return nil, nil
 	},
+}
+
+var kindSuffix = &analysis.Analyzer{
+	Name: "kindsuffix",
+	Doc:  "a variable name doesn't repeat its type's kind: users, not usersMap / userSlice / nameStr / countInt",
+	Run: func(pass *analysis.Pass) (any, error) {
+		for id, obj := range pass.TypesInfo.Defs {
+			v, ok := obj.(*types.Var)
+			if !ok || v.Embedded() {
+				continue
+			}
+			for _, w := range kindWords(v.Type()) {
+				base, ok := strings.CutSuffix(id.Name, w)
+				if !ok || base == "" {
+					continue
+				}
+				// tagStr beside tag := reflect.StructTag(tagStr): the suffix tells the two forms apart.
+				if !inLocalScope(pass, v.Parent(), base) {
+					pass.Reportf(id.Pos(), "%s: drop the %q suffix; the type (%s) already says it", id.Name, w, v.Type())
+				}
+				break
+			}
+		}
+		return nil, nil
+	},
+}
+
+// inLocalScope reports whether name is declared in s or an enclosing function scope.
+func inLocalScope(pass *analysis.Pass, s *types.Scope, name string) bool {
+	for ; s != nil && s != pass.Pkg.Scope(); s = s.Parent() {
+		if s.Lookup(name) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// kindWords returns the name suffixes that only restate t's underlying kind.
+func kindWords(t types.Type) []string {
+	switch u := t.Underlying().(type) {
+	case *types.Map:
+		return []string{"Map"}
+	case *types.Slice, *types.Array:
+		return []string{"Slice", "Array", "Arr"}
+	case *types.Chan:
+		return []string{"Chan"}
+	case *types.Basic:
+		switch info := u.Info(); {
+		case info&types.IsString != 0:
+			return []string{"String", "Str"}
+		case info&types.IsInteger != 0:
+			return []string{"Int"}
+		case info&types.IsFloat != 0:
+			return []string{"Float"}
+		case info&types.IsBoolean != 0:
+			return []string{"Bool"}
+		}
+	}
+	return nil
+}
+
+var stutter = &analysis.Analyzer{
+	Name: "stutter",
+	Doc:  "exported names don't repeat the package name: booking.Service, not booking.BookingService; chat.New, not chat.NewChat",
+	Run: func(pass *analysis.Pass) (any, error) {
+		pkg := pass.Pkg.Name()
+		if pkg == "main" {
+			return nil, nil
+		}
+		for _, f := range pass.Files {
+			if ast.IsGenerated(f) || isTest(pass, f) {
+				continue
+			}
+			for _, id := range topLevelNames(f) {
+				name := id.Name
+				if !ast.IsExported(name) {
+					continue
+				}
+				if len(name) > len(pkg) && strings.EqualFold(name[:len(pkg)], pkg) &&
+					(unicode.IsUpper(rune(name[len(pkg)])) || unicode.IsDigit(rune(name[len(pkg)]))) {
+					pass.Reportf(id.Pos(), "%s stutters as %s.%s; name it %s", name, pkg, name, name[len(pkg):])
+				} else if strings.EqualFold(name, "New"+pkg) {
+					pass.Reportf(id.Pos(), "%s stutters as %s.%s; name it New", name, pkg, name)
+				}
+			}
+		}
+		return nil, nil
+	},
+}
+
+// topLevelNames returns the names f declares at package level, methods excluded.
+func topLevelNames(f *ast.File) []*ast.Ident {
+	var ids []*ast.Ident
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			if d.Recv == nil {
+				ids = append(ids, d.Name)
+			}
+		case *ast.GenDecl:
+			for _, s := range d.Specs {
+				switch s := s.(type) {
+				case *ast.TypeSpec:
+					ids = append(ids, s.Name)
+				case *ast.ValueSpec:
+					ids = append(ids, s.Names...)
+				}
+			}
+		}
+	}
+	return ids
 }
 
 // scannedSchemas keeps each schema directory to one scan per run, whichever package reaches it first.
