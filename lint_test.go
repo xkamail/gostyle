@@ -94,3 +94,7 @@ func TestPkgAlias(t *testing.T) {
 func TestTestName(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), testName, "testname")
 }
+
+func TestTestCleanup(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), testCleanup, "testcleanup")
+}

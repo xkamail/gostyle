@@ -37,7 +37,7 @@ var (
 func runLint() {
 	multichecker.Main(
 		pgIter, sqlStyle, sqlArgs, discardedErr, handlerErr, stdLog, ctxBackground,
-		acronymName, moneyDecimal, validFirst, omitEmpty, slopComment, zeroDecl, exportFirst, testFile, testName, sqlComment, pkgAlias,
+		acronymName, moneyDecimal, validFirst, omitEmpty, slopComment, zeroDecl, exportFirst, testFile, testName, testCleanup, sqlComment, pkgAlias,
 	)
 }
 
@@ -865,7 +865,7 @@ var testName = &analysis.Analyzer{
 			}
 			ast.Inspect(f, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
-				if !ok || len(call.Args) != 2 || !isTRun(pass, call) {
+				if !ok || len(call.Args) != 2 || !isTMethod(pass, call, "Run") {
 					return true
 				}
 				lit, ok := call.Args[0].(*ast.BasicLit)
@@ -928,9 +928,124 @@ func caseName(name string) string {
 	return strings.ToLower(strings.ReplaceAll(camelCut.ReplaceAllString(name, "$1 $2"), "_", " "))
 }
 
-func isTRun(pass *analysis.Pass, call *ast.CallExpr) bool {
+var testCleanup = &analysis.Analyzer{
+	Name: "testcleanup",
+	Doc:  "no defer tearing down what a parallel t.Run subtest uses: the subtest runs after the func returns, so use t.Cleanup",
+	Run: func(pass *analysis.Pass) (any, error) {
+		for _, f := range pass.Files {
+			if !isTest(pass, f) {
+				continue
+			}
+			ast.Inspect(f, func(n ast.Node) bool {
+				var body *ast.BlockStmt
+				switch n := n.(type) {
+				case *ast.FuncDecl:
+					body = n.Body
+				case *ast.FuncLit:
+					body = n.Body
+				}
+				if body != nil {
+					checkDeferCleanup(pass, body)
+				}
+				return true
+			})
+		}
+		return nil, nil
+	},
+}
+
+// checkDeferCleanup reports each defer in body that tears down a variable a parallel
+// subtest of body uses: the defer's own variables, plus those declared alongside them
+// (ctx in ctx, cancel := ...).
+func checkDeferCleanup(pass *analysis.Pass, body *ast.BlockStmt) {
+	var defers []*ast.DeferStmt
+	var subtests []*ast.FuncLit
+	siblings := map[types.Object][]types.Object{}
+	inspectOwn(body, func(n ast.Node) {
+		switch n := n.(type) {
+		case *ast.DeferStmt:
+			defers = append(defers, n)
+		case *ast.AssignStmt:
+			var objs []types.Object
+			for _, lhs := range n.Lhs {
+				if id, ok := lhs.(*ast.Ident); ok && pass.TypesInfo.Defs[id] != nil {
+					objs = append(objs, pass.TypesInfo.Defs[id])
+				}
+			}
+			for _, o := range objs {
+				siblings[o] = objs
+			}
+		case *ast.CallExpr:
+			if len(n.Args) == 2 && isTMethod(pass, n, "Run") {
+				if lit, ok := n.Args[1].(*ast.FuncLit); ok && callsParallel(pass, lit.Body) {
+					subtests = append(subtests, lit)
+				}
+			}
+		}
+	})
+	if len(subtests) == 0 {
+		return
+	}
+	for _, d := range defers {
+		torn := map[types.Object]bool{}
+		ast.Inspect(d.Call, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok {
+				if obj, ok := pass.TypesInfo.Uses[id].(*types.Var); ok && obj.Pos() >= body.Pos() && obj.Pos() < body.End() {
+					torn[obj] = true
+					for _, o := range siblings[obj] {
+						torn[o] = true
+					}
+				}
+			}
+			return true
+		})
+		if name := usedIn(pass, subtests, torn); name != "" {
+			pass.Reportf(d.Pos(), "defer runs when this func returns, but a parallel subtest still uses %s after that; use t.Cleanup", name)
+		}
+	}
+}
+
+// usedIn is the first of objs that any of lits uses, or "".
+func usedIn(pass *analysis.Pass, lits []*ast.FuncLit, objs map[types.Object]bool) string {
+	var name string
+	for _, lit := range lits {
+		ast.Inspect(lit.Body, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok && name == "" && objs[pass.TypesInfo.Uses[id]] {
+				name = id.Name
+			}
+			return name == ""
+		})
+	}
+	return name
+}
+
+// inspectOwn visits the nodes of body that run in its own func, not in nested func literals.
+func inspectOwn(body *ast.BlockStmt, visit func(ast.Node)) {
+	ast.Inspect(body, func(n ast.Node) bool {
+		if _, ok := n.(*ast.FuncLit); ok {
+			return false
+		}
+		if n != nil {
+			visit(n)
+		}
+		return true
+	})
+}
+
+func callsParallel(pass *analysis.Pass, body *ast.BlockStmt) bool {
+	var found bool
+	inspectOwn(body, func(n ast.Node) {
+		if call, ok := n.(*ast.CallExpr); ok && isTMethod(pass, call, "Parallel") {
+			found = true
+		}
+	})
+	return found
+}
+
+// isTMethod reports whether call is (*testing.T).<name>.
+func isTMethod(pass *analysis.Pass, call *ast.CallExpr, name string) bool {
 	fn, ok := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
-	if !ok || fn.Name() != "Run" || fn.Pkg() == nil || fn.Pkg().Path() != "testing" {
+	if !ok || fn.Name() != name || fn.Pkg() == nil || fn.Pkg().Path() != "testing" {
 		return false
 	}
 	recv := fn.Signature().Recv()
