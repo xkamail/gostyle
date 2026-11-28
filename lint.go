@@ -786,7 +786,7 @@ var testFile = &analysis.Analyzer{
 				if used[src] > 0 {
 					continue
 				}
-				best := ""
+				var best string
 				for file, n := range used {
 					if best == "" || n > used[best] || n == used[best] && file < best {
 						best = file
